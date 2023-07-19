@@ -1,0 +1,446 @@
+ip address
+  996  netstat -l
+  997  dig protonmail.com MX
+  998  dig protonmail.com 
+  999  dig ww.protonmail.com 
+ 1000  curl -v protonmail.com
+ 1001  user
+ 1002  sudo su
+ 1003  netstat
+ 1004  netstat -t
+ 1005  netstat -t -n
+ 1006  netstat -t -n -l
+ 1007  bc
+
+ 1064  cat /etc/os-release
+ 1066  dpkg --get-selections 
+
+ 1055  nc -l 8888
+ 1056  nc
+ 1057  nc -l 8888
+ 1058  curl -X POST -d 'haha' http://localhost:8080/pig
+
+----------------
+
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+	// Read the request body
+	name := r.URL.Query().Get("name")
+
+	// Print the name
+	fmt.Println("Name:", name)
+
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Error reading request body", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+
+	// Print the request body
+	fmt.Println(string(body))
+
+	// Send a response
+
+	response := "Received name: " + name
+	w.Write([]byte(response))
+}
+
+func handlePigRequest(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Error reading request body", http.StatusInternalServerError)
+			return
+		}
+		defer r.Body.Close()
+
+		fmt.Println("Received POST request body for '/pig':", string(body))
+		w.Write([]byte("POST request received on '/pig'"))
+	} else {
+		fmt.Println("Received GET request for '/pig'")
+		w.Write([]byte("GET request received on '/pig'"))
+	}
+}
+
+func main() {
+	http.HandleFunc("/", handleRequest)
+	http.HandleFunc("/pig", handlePigRequest)
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+--------------- ver 2 ---------------------
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"sync"
+)
+
+var buffer []interface{}
+var mutex sync.Mutex
+
+func main() {
+	http.HandleFunc("/", handleRequest)
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func handleRequest(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		handleGetRequest(w, r)
+	case http.MethodPost:
+		handlePostRequest(w, r)
+	case http.MethodPut:
+		handlePutRequest(w, r)
+	case http.MethodDelete:
+		handleDeleteRequest(w, r)
+	default:
+		http.Error(w, "Method not supported", http.StatusMethodNotAllowed)
+	}
+}
+
+func handleGetRequest(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "GET request received")
+}
+
+func handlePostRequest(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Error reading request body", http.StatusInternalServerError)
+		return
+	}
+	defer r.Body.Close()
+
+	var data interface{}
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		http.Error(w, "Invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	mutex.Lock()
+	buffer = append(buffer, data)
+	bufferSize := calculateBufferSize()
+	mutex.Unlock()
+
+	if bufferSize >= 0.5*1024*16 {
+		go writeBufferedDataToFile()
+	}
+
+	fmt.Fprint(w, "POST request received")
+}
+
+func handlePutRequest(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "PUT request received")
+}
+
+func handleDeleteRequest(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w, "DELETE request received")
+}
+
+func calculateBufferSize() int {
+	bufferSize := 0
+	for _, data := range buffer {
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			log.Println("Error marshaling JSON data:", err)
+			continue
+		}
+		bufferSize += len(jsonData)
+	}
+	return bufferSize
+}
+
+func writeBufferedDataToFile() {
+	mutex.Lock()
+	defer mutex.Unlock()
+	// --- test of the writing to the file -----
+	file, err := os.OpenFile("received-jsonl", os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	if err != nil {
+		log.Println("Error opening file:", err)
+		return
+	}
+	defer file.Close()
+
+	for _, data := range buffer {
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			log.Println("Error marshaling JSON data:", err)
+			continue
+		}
+
+		_, err = file.Write(jsonData)
+		if err != nil {
+			log.Println("Error writing to file:", err)
+		}
+	}
+	// --- test of the writing to the file -----
+	buffer = nil
+	fmt.Println("Buffered data written to file")
+}
+
+func dumpt()
+
+------------- Ver 3 -------
+
+package main
+
+import (
+	"encoding/json"
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"sync"
+)
+
+const (
+	maxBufferSize = 1 * 1024 * 1024 // 1MB
+	outputFile    = "received-jsons"
+)
+
+type JSONData struct {
+	Data string `json:"data"`
+}
+
+func main() {
+	jsonChan := make(chan []byte)
+	bufferChan := make(chan []byte)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go bufferJSONs(jsonChan, bufferChan, &wg)
+	go storeBuffer(bufferChan, &wg)
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Error reading request body", http.StatusInternalServerError)
+			return
+		}
+		defer r.Body.Close()
+
+		jsonChan <- body
+
+		w.Write([]byte("Request received"))
+	})
+
+	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	close(jsonChan)
+	wg.Wait()
+}
+
+func bufferJSONs(jsonChan <-chan []byte, bufferChan chan<- []byte, wg *sync.WaitGroup) {
+	buffer := []byte{}
+	bufferSize := 0
+
+	for json := range jsonChan {
+		buffer = append(buffer, json...)
+		bufferSize += len(json)
+
+		if bufferSize >= maxBufferSize {
+			bufferChan <- buffer
+			buffer = []byte{}
+			bufferSize = 0
+		}
+	}
+
+	if len(buffer) > 0 {
+		bufferChan <- buffer
+	}
+
+	close(bufferChan)
+	wg.Done()
+}
+
+func storeBuffer(bufferChan <-chan []byte, wg *sync.WaitGroup) {
+	file, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatal("Error opening output file:", err)
+	}
+	defer file.Close()
+
+	for buffer := range bufferChan {
+		_, err := file.Write(buffer)
+		if err != nil {
+			log.Println("Error writing to output file:", err)
+		}
+	}
+
+	wg.Done()
+}
+
+In this example:
+
+    The program creates two channels: jsonChan for receiving JSONs from HTTP requests and bufferChan for passing the buffered JSONs to be stored.
+    The bufferJSONs goroutine receives JSONs from jsonChan and appends them to the buffer until the buffer size reaches or exceeds 1MB. When this happens, the buffer is sent to bufferChan, and a new buffer is created. If the program detects that there are no more JSONs to be buffered, it sends the remaining buffer to bufferChan.
+    The storeBuffer goroutine receives the buffer from bufferChan and appends it to the output file named "received-jsons".
+    The main function handles the HTTP requests. When a request is received, it reads the JSON body and sends it to jsonChan. It then sends a response to the client indicating that the request was received.
+    The program uses a wait group (wg) to ensure that both goroutines complete before the program exits.
+
+Make sure you have Go installed and set up properly before running the code. You can run the program using the go run command followed by the filename, for example: go run main.go. The server will listen on port 8080, and the received JSONs will be stored in the "received-jsons" file in the same directory as the program.
+
+Please note that this example doesn't handle error cases related to JSON parsing or file operations. It's essential to implement appropriate error handling in a production scenario.
+
+Test results of the go-wrk - benchmarking tool
+
+------------------ ver 4 ---------------
+package main
+
+import (
+	"io/ioutil"
+	"log"
+	"net/http"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sync"
+)
+
+const (
+	maxBufferSize  = 1 * 1024 * 16 // designate some memory size
+	outputFile     = "data/received-jsons"
+	outputFileDir  = "date/"
+	nameSetByInput = "/blackhole/"
+)
+
+type JSONData struct {
+	Data string `json:"data"`
+}
+
+type JSONParseError struct {
+	Msg string
+}
+
+func (e *JSONParseError) Error() string {
+	return e.Msg
+}
+
+// check if the blackhole path exist example 192.168.110.140/blackhole/
+// check fot the a proper naming - 192.168.110.140/blackhole/lasjd931!! discard string with special characters
+// if the above is thrue create a filename with the same name to write the JSONs to
+// Write/Overwrite/Append to the file
+
+func isValidPath(path string) bool {
+	matched, _ := regexp.MatchString(`^/blackhole/[A-Za-z0-9_\-]+$`, path)
+	return matched
+}
+
+func getFilename(path string) string {
+	return filepath.Base(path[1:])
+}
+
+func bufferJSONs(jsonChan <-chan []byte, bufferChan chan<- []byte, wg *sync.WaitGroup) {
+	buffer := []byte{}
+	bufferSize := 0
+
+	for json := range jsonChan {
+		buffer = append(buffer, json...)
+		bufferSize += len(json)
+
+		if bufferSize >= maxBufferSize {
+			bufferChan <- buffer
+			buffer = []byte{}
+			bufferSize = 0
+		}
+	}
+
+	if len(buffer) > 0 {
+		bufferChan <- buffer
+	}
+
+	close(bufferChan)
+	wg.Done()
+}
+
+func storeBuffer(bufferChan <-chan []byte, wg *sync.WaitGroup) {
+	file, err := os.OpenFile(outputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		log.Fatalf("Error opening output file: %v", err)
+	}
+	defer file.Close()
+
+	for buffer := range bufferChan {
+		_, err := file.Write(buffer)
+		if err != nil {
+			log.Printf("Error writing to output file: %v", err)
+		}
+	}
+
+	wg.Done()
+}
+
+func main() {
+	jsonChan := make(chan []byte)
+	bufferChan := make(chan []byte)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go bufferJSONs(jsonChan, bufferChan, &wg)
+	go storeBuffer(bufferChan, &wg)
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "Error reading request body", http.StatusInternalServerError)
+			return
+		}
+		defer r.Body.Close()
+
+		jsonChan <- body
+
+		w.Write([]byte("Request received"))
+	})
+
+	log.Fatal(http.ListenAndServe(":8080", nil))
+
+	close(jsonChan)
+	wg.Wait()
+}
+with thic code the jsons file was on a sinle line till some counts
+---------------
+
+go-wrk -c 10 -d 5 http://192.168.110.163:8080
+Running 5s test @ http://192.168.110.163:8080
+  10 goroutine(s) running concurrently
+8958 requests in 4.985996341s, 1.02MB read
+Requests/sec:           1796.63
+Transfer/sec:           208.79KB
+Avg Req Time:           5.56597ms
+Fastest Request:        1.259578ms
+Slowest Request:        71.182666ms
+Number of Errors:       0
+
+░▒▓  ~   14:25  
+❯ go-wrk -c 10 -d 5 http://192.168.110.163:8080
+Running 5s test @ http://192.168.110.163:8080
+  10 goroutine(s) running concurrently
+9670 requests in 4.985769665s, 1.10MB read
+Requests/sec:           1939.52
+Transfer/sec:           225.39KB
+Avg Req Time:           5.155914ms
+Fastest Request:        1.040837ms
+Slowest Request:        218.10768ms
+Number of Errors:       0
+
+░▒▓  ~   14:25  
+❯ go-wrk -c 10 -d 5 http://192.168.110.163:8080
+Running 5s test @ http://192.168.110.163:8080
+  10 goroutine(s) running concurrently
+10805 requests in 4.989610481s, 1.23MB read
+Requests/sec:           2165.50
+Transfer/sec:           251.65KB
+Avg Req Time:           4.617871ms
+Fastest Request:        1.036504ms
+Slowest Request:        98.83474ms
+Number of Errors:       0
+
+-----------
+https://github.com/spf13/cobra/blob/main/site/content/user_guide.md
